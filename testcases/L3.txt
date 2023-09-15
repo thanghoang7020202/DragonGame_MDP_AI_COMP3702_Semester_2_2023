@@ -11,7 +11,7 @@
 # PI iterations targets (min score target, max score target)
 46, 23
 # reward target
--316.2, -158.1
+-294.4, -147.2
 # glide probabilities
 0.2, 0.6, 0.2
 # super jump probabilities

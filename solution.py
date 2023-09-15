@@ -4,6 +4,7 @@ import time
 from game_env import GameEnv
 from game_state import GameState
 from itertools import product
+
 """
 solution.py
 
