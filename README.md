@@ -1,9 +1,4 @@
-# Assignment 2 Support Code
-
-This is the support code for COMP3702 Assignment 2 "Dragon Game".
-
-The following files are provided:
-
+# DragonGame_MDP_AI_COMP3702
 **game_env.py**
 
 This file contains a class representing an Untitled Dragon Game level environment, storing the dimensions of the
