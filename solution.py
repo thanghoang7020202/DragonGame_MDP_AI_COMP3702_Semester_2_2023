@@ -1,11 +1,9 @@
-import sys
-import time
-
 from typing import Dict, Tuple
 from game_env import GameEnv
 from game_state import GameState
 from itertools import product
 import numpy as np
+import random
 
 """
 solution.py
@@ -22,17 +20,15 @@ Last updated by njc 30/08/23
 
 
 class Solver:
-
+    # VI and PI implementations are inspired from https://github.com/comp3702/tutorial07
     def __init__(self, game_env: GameEnv):
         self.game_env = game_env
         self.list_of_states = []
-        self.values = {}
         self.policy = {} 
-        self.max_del = None
+        self.converged = None
         # Policy Iteration
         self.state_values = None
         self.t_model = None
-        self.converged = None
         self.state_pair = None
         self.la_policy = None
         self.exit_state = None
@@ -83,15 +79,15 @@ class Solver:
         # In order to ensure compatibility with tester, you should avoid adding additional arguments to this function.
         #
         res = self.get_all_gem_status_combinations(self.game_env.n_gems)
-        #last_gem_state = GameState(-1,-1, tuple([1 for g in self.game_env.gem_positions]))
+        last_gem_state = GameState(-1,-1, tuple([1 for g in self.game_env.gem_positions]))
         obstacle_list = self.get_all_obstacle()
         self.list_of_states = list(GameState(row, col, res[i]) for row in range(self.game_env.n_rows -1) \
                               for col in range(self.game_env.n_cols -1) \
-                                for i in range (len(res)) if (row,col) not in obstacle_list) #+ [last_gem_state]
+                                for i in range (len(res)) if (row,col) not in obstacle_list) + [last_gem_state]
         
-        for s in self.list_of_states:
-            self.values[s] = 0
-            self.policy[s] = self.game_env.WALK_LEFT
+        self.state_values = {state: 0 for state in self.list_of_states}
+        enumActions = list(self.game_env.ACTIONS)
+        self.policy = {state: self.game_env.WALK_LEFT for state in self.list_of_states}
         pass
 
     def vi_is_converged(self):
@@ -104,9 +100,7 @@ class Solver:
         #
         # In order to ensure compatibility with tester, you should avoid adding additional arguments to this function.
         #
-        if self.max_del is None or self.max_del > self.game_env.epsilon:
-            return False
-        return True
+        return self.converged
    
     def vi_iteration(self):
         """
@@ -117,59 +111,32 @@ class Solver:
         #
         # In order to ensure compatibility with tester, you should avoid adding additional arguments to this function.
         #
-        max_del = -float('inf')
-        new_values = self.values.copy()
-        new_policy = dict()
-        for s in self.list_of_states:
-            # if s is term -> remove Vs and make ew_values[s] = 0
-            if self.game_env.is_solved(s) or self.game_env.is_game_over(s):
-                new_values[s] = 0
-                new_policy[s] = self.policy[s]
-                continue
+        new_state_values = dict()
+        self.policy = dict()
 
-            '''
-             _, _, _, terminal = check_collision_or_terminal(self.game_env, s.row, s.col, 0, 0)
-            if terminal:
-                new_values[s] = -1 * self.game_env.game_over_penalty
-                new_policy[s] = self.policy[s]
-                continue
-            '''
+        #max_del = -float('inf')
+        #new_values = self.values.copy()
+        #new_policy = dict()
+        for s in self.list_of_states:
+            action_values = dict()
+            # if s is term -> remove Vs and make ew_values[s] = 0
            
-            best_q = -float('inf') # initialize to smallest possible value
-            best_a = None
-            #actions = get_valid_actions(self.game_env, s)
             for a in self.game_env.ACTIONS: # compute the total for every valid actions
-                total = 0
-                flag = False
-                is_valid, _,_, _ = self.game_env.perform_action(s, a)
-                if not is_valid:
+                action_value = 0
+                
+                if self.game_env.perform_action(s, a)[0] == False:
                     continue
                 for (next_state, reward, prob) in get_transition_outcomes_restricted(self.game_env, s, a): # get_transition_outcomes returns a list of tuples
-                    '''
-                    print("current_state: ", s.row, s.col, s.gem_status)
-                    print("action: ", a)
-                    print("next_state: ", next_state.row, next_state.col, next_state.gem_status)
-                    print(self.values[next_state])
-                    '''
-                    total += prob * (reward + (self.game_env.gamma * self.values[next_state])) 
-                if flag:
-                    continue
-                if total > best_q:
-                    best_q = total
-                    best_a = a
-            # update state value with best action
-            new_values[s] = best_q
-            new_policy[s] = best_a
-            ##print("Old value: ", self.values[s], "New value: ", new_values[s])
-            difference = abs(self.values[s] - new_values[s])
-            if difference > max_del:
-                max_del = difference
+                    
+                    action_value += prob * (reward + (self.game_env.gamma * self.state_values[next_state]))
+                action_values[a] = action_value
+            
+            new_state_values[s] = max(action_values.values())
+            #print(new_state_values[s])
+            self.policy[s] = dict_argmax(action_values)
 
-        # update values
-        self.max_del = max_del
-        self.values = new_values
-        self.policy = new_policy
-        pass
+        self.converged = check_convergence_vi(self, new_state_values)
+        self.state_values = new_state_values
 
     def vi_plan_offline(self):
         """
@@ -196,7 +163,7 @@ class Solver:
         #
         # In order to ensure compatibility with tester, you should avoid adding additional arguments to this function.
         #
-        return self.values[state]
+        return self.state_values[state]
         pass
 
     def vi_select_action(self, state: GameState):
@@ -235,7 +202,8 @@ class Solver:
                                 for i in range (len(res)) if (row,col) not in obstacle_list) + [self.exit_state]
 
         self.state_values = {s: 0 for s in self.list_of_states}
-        self.policy = {s: self.game_env.WALK_LEFT for s in self.list_of_states}
+        enumActions = list(self.game_env.ACTIONS)
+        self.policy = {s: np.random.choice(enumActions) for s in self.list_of_states}
 
         # r model (lin alg)
         r_model = np.zeros([len(self.list_of_states), len(self.game_env.ACTIONS)])
@@ -374,6 +342,11 @@ class Solver:
     # TODO: Add any additional methods here
     #
     #
+def check_convergence_vi(self, new_state_values: Dict[Tuple[int, int], float]) -> bool:
+        #print(self.state_values )
+        #print(new_state_values)
+        differences = [abs(self.state_values[state] - new_state_values[state]) for state in self.list_of_states]
+        return max(differences) < self.game_env.epsilon
 def convergence_check(self, new_policy: Dict[Tuple[int, int], int]) -> bool:
     return self.policy == new_policy
 
@@ -432,7 +405,7 @@ def get_valid_actions(game_env, state):
         valid_actions.append(game_env.DROP_3)
     return valid_actions
 
-
+#<CITATION: COMP3702 SUPPLIED CODE FOR TRANSITION FUNCTION, NJC>
 def get_transition_outcomes_restricted(game_env, state, action):
     """
     This method assumes (state, action) is a valid combination.
@@ -463,33 +436,75 @@ def get_transition_outcomes_restricted(game_env, state, action):
             move_dir = 1
 
         # walk on normal walkable tile (super charge case not handled)
+        if game_env.grid_data[state.row + 1][state.col] == game_env.SUPER_CHARGE_TILE:
+            next_row, next_col = state.row, state.col
+            next_gem_status = state.gem_status
+            while game_env.grid_data[next_row + 1][next_col + move_dir] == game_env.SUPER_CHARGE_TILE:
+                next_col += move_dir
+                # check for collision or game over
+                next_row, next_col, collision, is_terminal = \
+                    check_collision_or_terminal(game_env, next_row, next_col,
+                                                        row_move_dir=0, col_move_dir=move_dir)
+                #print("322",collision, " ", is_terminal)
+                if collision or is_terminal:
+                    break
+
+                # move sampled move distance beyond the last adjoining supercharge tile
+            for move_dist in game_env.super_charge_probs.keys(): # iterate over possible move distances
+                next_col_move = next_col # reset to last adjoining supercharge tile
+                next_row_move = next_row # reset to last adjoining supercharge tile
+                next_gem_status_1 = next_gem_status
+                for d in range(move_dist):
+                    next_col_move += move_dir
+                    # check for collision or game over
+                    next_row_move, next_col_move, collision, is_terminal = \
+                        check_collision_or_terminal(game_env, next_row_move, next_col_move,
+                                                            row_move_dir=0, col_move_dir=move_dir)
+                    #print("336",collision, " ", is_terminal)
+                    if collision or is_terminal:
+                        break
+
+                    # check if a gem is collected or goal is reached (only do this for final position of charge)
+                    next_gem_status_1, is_solved = check_gem_collected_or_goal_reached(game_env, next_row_move, next_col_move, next_gem_status_1)
+                    if collision:
+                        # add any remaining probability to current state
+                        outcomes.append((GameState(next_row_move, next_col_move, next_gem_status_1),
+                                        reward - game_env.collision_penalty, game_env.super_charge_probs[move_dist]))
+                    elif is_terminal:
+                        # add any remaining probability to current state
+                        outcomes.append((GameState(next_row_move, next_col_move, next_gem_status_1),
+                                        reward - game_env.game_over_penalty, game_env.super_charge_probs[move_dist]))
+                    else:
+                        outcomes.append((GameState(next_row_move, next_col_move, next_gem_status_1), 
+                                        reward, game_env.super_charge_probs[move_dist]))
+        else:
         # if on ladder, handle fall case
-        if game_env.grid_data[state.row + 1][state.col] == GameEnv.LADDER_TILE and \
-                game_env.grid_data[state.row + 2][state.col] not in GameEnv.COLLISION_TILES:
-            next_row, next_col = state.row + 2, state.col
+            if game_env.grid_data[state.row + 1][state.col] == GameEnv.LADDER_TILE and \
+                    game_env.grid_data[state.row + 2][state.col] not in GameEnv.COLLISION_TILES:
+                next_row, next_col = state.row + 2, state.col
+                # check if a gem is collected or goal is reached
+                next_gem_status, _ = check_gem_collected_or_goal_reached(game_env, next_row, next_col, state.gem_status)
+                outcomes.append((GameState(next_row, next_col, next_gem_status), reward, game_env.ladder_fall_prob))
+                remaining_prob -= game_env.ladder_fall_prob
+
+            next_row, next_col = state.row, state.col + move_dir
+            # check for collision or game over
+            next_row, next_col, collision, is_terminal = \
+                check_collision_or_terminal(game_env, next_row, next_col, row_move_dir=0, col_move_dir=move_dir)
+
             # check if a gem is collected or goal is reached
             next_gem_status, _ = check_gem_collected_or_goal_reached(game_env, next_row, next_col, state.gem_status)
-            outcomes.append((GameState(next_row, next_col, next_gem_status), reward, game_env.ladder_fall_prob))
-            remaining_prob -= game_env.ladder_fall_prob
 
-        next_row, next_col = state.row, state.col + move_dir
-        # check for collision or game over
-        next_row, next_col, collision, is_terminal = \
-            check_collision_or_terminal(game_env, next_row, next_col, row_move_dir=0, col_move_dir=move_dir)
-
-        # check if a gem is collected or goal is reached
-        next_gem_status, _ = check_gem_collected_or_goal_reached(game_env, next_row, next_col, state.gem_status)
-
-        if collision:
-            # add any remaining probability to current state
-            outcomes.append((GameState(next_row, next_col, next_gem_status),
-                             reward - game_env.collision_penalty, remaining_prob))
-        elif is_terminal:
-            # add any remaining probability to current state
-            outcomes.append((GameState(next_row, next_col, next_gem_status),
-                             reward - game_env.game_over_penalty, remaining_prob))
-        else:
-            outcomes.append((GameState(next_row, next_col, next_gem_status), reward, remaining_prob))
+            if collision:
+                # add any remaining probability to current state
+                outcomes.append((GameState(next_row, next_col, next_gem_status),
+                                reward - game_env.collision_penalty, remaining_prob))
+            elif is_terminal:
+                # add any remaining probability to current state
+                outcomes.append((GameState(next_row, next_col, next_gem_status),
+                                reward - game_env.game_over_penalty, remaining_prob))
+            else:
+                outcomes.append((GameState(next_row, next_col, next_gem_status), reward, remaining_prob))
 
     elif action == GameEnv.JUMP:
         # jump on normal walkable tile (super jump case not handled)
