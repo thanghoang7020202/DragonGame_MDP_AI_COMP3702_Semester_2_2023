@@ -127,7 +127,6 @@ class Solver:
                 action_values[a] = action_value
             
             self.state_values[s] = max(action_values.values())
-            #print(new_state_values[s])
             self.policy[s] = dict_argmax(action_values)
 
         self.converged = check_convergence_vi(self, old_state_values)
@@ -216,11 +215,7 @@ class Solver:
                     r_model[i][j] += prob * reward
         self.r_model = r_model
         self.t_model = t_model
-
-        # lin alg policy (pi), arbitrarily initialise to 0 (UP) for all states
-        
         self.la_policy = np.zeros(len(self.list_of_states), dtype=int)
-
         self.converged = False
         pass
 
@@ -265,7 +260,6 @@ class Solver:
         # solve for V^pi(s) using linear algebra
         values = np.linalg.solve(np.identity(len(self.list_of_states)) - (self.game_env.gamma * t_pi), r_pi)
         # convert V^pi(s) vector to dict and return
-        #print(values)
         self.state_values = {s: values[i] for i, s in enumerate(self.list_of_states)}
         #new_policy = {s: self.list_of_states[self.la_policy[i]] for i, s in enumerate(self.list_of_states)}
         return self.state_values  
@@ -337,8 +331,6 @@ class Solver:
     #
     #
 def check_convergence_vi(self, new_state_values: Dict[Tuple[int, int], float]) -> bool:
-        #print(self.state_values )
-        #print(new_state_values)
         differences = [abs(self.state_values[state] - new_state_values[state]) for state in self.list_of_states]
         
         return max(differences) < self.game_env.epsilon
@@ -368,7 +360,6 @@ def get_reward(game_env, state): # the next action will be edit later
 
 
 def dict_argmax(dictionary: Dict):
-    #print(dictionary)
     max_value = max((dictionary.values())) # TODO handle multiple keys with the same max value
     
     for key, value in dictionary.items():
@@ -439,7 +430,6 @@ def get_transition_outcomes_restricted(game_env, state, action):
         # super charge case
 
         if game_env.grid_data[state.row + 1][state.col] == game_env.SUPER_CHARGE_TILE:
-            print("in super change mode")
             next_row, continue_col = state.row, state.col
             next_gem_status = state.gem_status
             min_move_distance = 2 # walk on super charge
@@ -450,7 +440,6 @@ def get_transition_outcomes_restricted(game_env, state, action):
                 next_row, continue_col, collision, is_terminal = \
                     check_collision_or_terminal(game_env, next_row, continue_col,
                                                         row_move_dir=0, col_move_dir=move_dir)
-                #print("322",collision, " ", is_terminal)
                 if collision or is_terminal:
                     break
 
@@ -498,7 +487,6 @@ def get_transition_outcomes_restricted(game_env, state, action):
         max_jump_height = 1
         min_jump_height = 1
         if game_env.grid_data[state.row + 1][state.col] == game_env.SUPER_JUMP_TILE:
-            #print("enter super jump mode")
             min_jump_height = 2
             max_jump_height = 5
         for d in range(min_jump_height, max_jump_height + 1): #loop from 1 to 5
